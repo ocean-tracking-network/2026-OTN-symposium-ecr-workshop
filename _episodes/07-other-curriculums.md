@@ -6,10 +6,10 @@ questions:
 - "How can I expand my learning?"
 ---
 
-**NOTE:** this workshop has been update to align with OTN's 2025 Detection Extract Format. For older detection extracts, please see the this lesson: [Archived OTN Workshop](https://ocean-tracking-network.github.io/otn-workshop-2025-06/). 
+OTN's current workshop content is available from the [OTN Workshop Base](https://ocean-tracking-network.github.io/otn-workshop-base/)
 
 
-OTN has hosted other workshops in the past which contain different code sets that may be useful to explore after this workshop. *Please note the date each workshop was last edited! Newer workshops will be more relevant and may contain fewer bugs. Older workshops will be built for older detection extract formats*
+However, OTN has hosted other workshops in the past which contain different code sets that may be useful to explore after this workshop. *Please note the date each workshop was last edited! Newer workshops will be more relevant and may contain fewer bugs. Older workshops will be built for older detection extract formats*
 
 - [General telemetry workflow 2019](https://ocean-tracking-network.github.io/jb-acoustic-telemetry/index.html)
 
@@ -43,4 +43,19 @@ OTN has hosted other workshops in the past which contain different code sets tha
 
 - [Dalhousie Biologging Course 2024](https://ocean-tracking-network.github.io/2024-biologging-class/index.html)
 
+- OTN Symposium Early Career Researcher Workshop 2024 - [Detection Efficiency, GAMs, Machine Learning code here](https://ocean-tracking-network.github.io/2024-symp-ecr-setup/) and the [Actel Lesson code is here](https://github.com/ocean-tracking-network/2024-ecrworkshop-actel)
+
+- [GLATOS Workshop 2025](https://ocean-tracking-network.github.io/2025-glatos-workshop/)
+
+- [Dalhousie Biologging Course 2025](https://ocean-tracking-network.github.io/2025-biologging-class/)
+
+- [OTN's Early Career Researcher Workshop 2025](https://ocean-tracking-network.github.io/2025-mrf-ecr-workshop/)
+
+- [GLATOS workshop 2026](https://ocean-tracking-network.github.io/glatos-workshop-2026/)
+
+- [SCAS Workshop 2026](https://github.com/ocean-tracking-network/SCAS-workshop-2026)
+
 Many of our Intro to R workshops are based upon this curriculum from [The Carpentries](https://datacarpentry.org/R-ecology-lesson/index.html).
+
+**NOTE:** this workshop has been update to align with OTN's 2025 Detection Extract Format. For older detection extracts, please see the this lesson: [Archived OTN Workshop](https://ocean-tracking-network.github.io/otn-workshop-2025-06/). 
+
