@@ -1,6 +1,6 @@
 ---
-title: Spatial and Temporal Modelling with GAMs
-exercises: 0
+title: Leveraging Yet Another Positioning Solver (YAPS)
+exercises: 90
 questions:
   - What are GAMs?
   - How can I use GAMs to visualise my data? 

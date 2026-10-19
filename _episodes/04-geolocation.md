@@ -1,402 +1,454 @@
 ---
-title: Spatial and Temporal Modelling with GAMs
+title: Patter Workshop
+teaching: 45
 exercises: 0
 questions:
-  - What are GAMs?
-  - How can I use GAMs to visualise my data? 
+  - What is patter?
+  - How can I use patter on ecological data? 
 ---
 
-GAM is short for 'Generalized Additive Model', a type of statistical model. In this lesson, we will be using GAMs to visualise our data. 
+## Background
 
-While we are still developing this lesson as templated text like our other lessons, we can provide the Powerpoint slides for the GAMs talk given by Dr. Lennox at the CANSSI Early Career Researcher workshop. You can access the slides [here](../Resources/GAMs.pptx).
+[patter](https://github.com/edwardlavender/patter) is an R package that you can use to formulate and fit state-space models to animal-tracking data. The approach enables us to estimate animal locations through time (plus movement speeds, behaviour and habitat selection). Package development was especially motivated by work in sparse acoustic telemetry systems (with non-overlapping receivers). 
+
+The workshop will comprise a brief introduction to patter and a live demonstration, followed by a short practical exercise. The script for the practical is self-contained and can be downloaded [here](https://github.com/edwardlavender/patter-workshops/blob/main/R/patter-intro.R). It is also copied below.
+
+#### Prerequisites 
+
+- Experience in R is desirable to engage in the live demonstration and practical exercise. 
+- Familiarity with state-space modelling is advantageous but not essential. See the Resources section below for suggested reading. 
+
 
 The following code is meant to be run alongside this presentation. 
 
+## Code
 ~~~
-require(BTN) # remotes::install_github("robertlennox/BTN")
-require(tidyverse)
-require(mgcv)
-require(lubridate)
-require(Thermimage)
-require(lunar)
-library(sf)
-library(gratia)
+###########################
+###########################
+#### patter-intro.R
 
-theme_set<-theme_classic()+
-  theme(text=element_text(size=20), axis.text=element_text(colour="black"))+
-  theme(legend.position="top") # set a theme for ourselves
+#### Aims
+# (1) Introduce the `patter` R package
 
-aur<-BTN::aurland %>% 
-  st_transform(32633) %>% 
-  slice(2) %>% 
-  ggplot()+
-  geom_sf()
+#### Prerequisites
+# (1) This code runs on Windows/MacOS
+# Modifications to the workflow can be required to run R/Julia on Linux
 
-#Load RData
-load("YOUR/PATH/TO/data/otn/troutdata.RDS")
-
-# first plot of the data
-
-troutdata %>% 
-  ggplot(aes(dt, Data, colour=Data))+
-  geom_point()+
-  theme_classic()+
-  scale_colour_gradientn(colours=Thermimage::flirpal)
-
-# mapping out the data
-
-aur+
-  geom_point(data=troutdata %>% 
-               group_by(lon, lat) %>% 
-               dplyr::summarise(m=mean(Data)),
-             aes(lon, lat, colour=m))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  theme_bw()
-
-# 4. going for smooth
-a<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5), data=., method="fREML", discrete=T)
-
-b<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="tp", k=5), data=., , method="fREML", discrete=T)
-
-c<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ h, data=., , method="fREML", discrete=T)
-
-tibble(h=c(0:23)) %>% 
-  mutate(circular=predict.gam(a, newdata=.)) %>% 
-  mutate(thin_plate=predict.gam(b, newdata=.)) %>% 
-  # mutate(v3=predict.gam(c, newdata=.)) %>% 
-  gather(key, value, -h) %>% 
-  ggplot(aes(h, value, colour=key))+
-  geom_line(size=2)+
-  theme_set+
-  labs(x="Hour", y="Predicted Depth", colour="Model")+
-  scale_y_reverse(limits=c(20, 0))+
-  geom_hline(yintercept=0)+
-  coord_polar()
-
-#6. model fitting vehicle
-
-m1<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  mutate(foid=factor(oid)) %>% 
-  gam(Data ~ s(h, k=5)+s(foid, bs="re"), data=., method="REML")
-
-m2<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  mutate(foid=factor(oid)) %>% 
-  bam(Data ~ s(h, k=5)+s(foid, bs="re"), data=., method="fREML", discrete=T)
-
-tibble(h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(gam=predict.gam(m1, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(bam=predict.gam(m2, newdata=., type="response", exclude=c("s(foid)"))) %>%
-  mutate(i=gam-bam) %>% 
-  gather(key, value, -h, -foid, -i) %>% 
-  ggplot(aes(h, value, colour=i))+
-  geom_line(size=2)+
-  theme_set+
-  facet_wrap(~key)+
-  labs(x="Hour", y="Predicted temperature", colour="Difference between predictions")+
-  theme(legend.key.width=unit(3, "cm"))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)
+#### Issues
+# Please report questions or issues on GitHub:
+# https://github.com/edwardlavender/patter/issues
+# https://github.com/edwardlavender/patter-workshops/issues
 
 
-#8. check your knots
+###########################
+###########################
+#### Set up
 
-k1<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5), data=., method="fREML", discrete=T)
+#### Wipe workspace
+rm(list = ls())
 
-k2<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=15), data=., , method="fREML", discrete=T)
+#### Set options e.g. map colour palette
+op <- options(terra.pal = grDevices::terrain.colors(256L, rev = TRUE))
 
-tibble(h=c(0:23)) %>% 
-  mutate("k=5"=predict.gam(k1, newdata=., type="response")) %>% 
-  mutate("k=15"=predict.gam(k2, newdata=., type="response")) %>% 
-  gather(key, value, -h) %>% 
-  ggplot(aes(h, value/10, colour=key))+
-  geom_line(size=2)+
-  theme_set+
-  labs(y="Temperature", x="Hour", colour="model")
+#### Essential packages
+library(data.table)
+library(dtplyr)
+library(dplyr, warn.conflicts = FALSE)
+library(glue)
+library(lubridate)
+library(patter)
+library(spatstat.explore)
 
-#9. temporal dependency
+#### Load data
+# We will load example datasets from `patter`
+# * These data are from flapper skate (_Dipturus intermedius_)
+map        <- dat_gebco()
+moorings   <- copy(dat_moorings)
+detections <- copy(dat_detections)
+archival   <- copy(dat_archival)
 
-
-t1<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  group_by(foid, dti=round_date(dt, "1 hour")) %>% 
-  dplyr::filter(dt==min(dt)) %>% 
-  bam(Data ~ s(h, k=5, bs="cc")+s(yd, k=10)+s(foid, bs="re"), data=., method="fREML", discrete=T)
-
-t2<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  group_by(foid, dti=round_date(dt, "1 hour")) %>% 
-  bam(Data ~ s(h, k=5, bs="cc")+s(yd, k=10)+s(foid, bs="re"), data=., method="fREML", discrete=T)
-
-expand_grid(h=c(12),
-            yd=c(32:60),
-            foid=1) %>% 
-  mutate(partial_series=predict.gam(t1, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(full_series=predict.gam(t2, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  gather(key, value, -h, -foid, -yd) %>% 
-  ggplot(aes(yd, value, colour=key))+
-  geom_point(data=troutdata %>% 
-               mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)),
-             aes(yday(dt), Data), inherit.aes=F)+
-  geom_path(size=2)+
-  theme_set+
-  labs(x="Date", y="Temperature", colour="Model")
-
-# 10. spatial dependency
-
-aur+
-  geom_point(data=troutdata %>% 
-               group_by(lon, lat) %>% 
-               dplyr::summarise(m=mean(Data)),
-             aes(lon, lat, colour=m))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  theme_bw()+
-  theme_set+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  labs(colour="mean temperature")
-
-#11. interactions
-
-mi<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  bam(Data ~ te(h, yd, bs=c("cc", "tp"), k=c(5, 10))+
-        s(foid, bs="re"), data=., family=Gamma(link="log"), method="fREML", discrete=T)
-
-ms<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5)+
-        s(yd, bs="tp", k=10)+
-        s(foid, bs="re"), data=., family=Gamma(link="log"), method="fREML", discrete=T)
+#### Julia set up (~5 min first run; 5 s thereafter)
+# Connect to Julia
+# * Set JULIA options in .Rprofile or .Renviron
+# * If you experience Julia errors/warning, try re-running `julia_connect()`
+julia_connect()
+# Set seed in R and Julia
+set_seed(123L)
 
 
-p1<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Simple model, AIC=426 801") %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)
-
-p2<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(mi, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Interaction model, AIC=425 805") %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)
-
-AIC(mi, ms)
-gridExtra::grid.arrange(p1, p2)
-
-# is it the moon?
-
-a<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Simple model, AIC= -262 975") %>% 
-  mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-  mutate(l=lunar::lunar.illumination(dt)) %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)+
-  geom_point(data=expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-               mutate(foid=1) %>% 
-               mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-               mutate(i="Simple model, AIC= -262 975") %>% 
-               mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-               mutate(l=lunar::lunar.illumination(dt)) %>% 
-               distinct(dt, yd, l),
-             aes(yd, 10, size=l), inherit.aes=F, colour="white")
-
-b<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(mi, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Interaction model, AIC=425 805") %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)+
-  geom_point(data=expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-               mutate(foid=1) %>% 
-               mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-               mutate(i="Simple model, AIC=426 801") %>% 
-               mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-               mutate(l=lunar::lunar.illumination(dt)) %>% 
-               distinct(dt, yd, l),
-             aes(yd, 10, size=l), inherit.aes=F, colour="white")
+###########################
+###########################
+#### Workflow with real data
 
 
-gridExtra::grid.arrange(a, b)
+###########################
+#### Define study system
+
+#### Define study area
+# `map` is a _planar_ SpatRaster that defines the region within which movements are permitted
+# * See `terra::project()` to convert lon/lat to UTM
+# * See `terra::rasterize()` to convert shapefile to SpatRaster
+terra::plot(map)
+# Use `set_map()` to export the map to `Julia`
+set_map(map)
+
+#### Define study timeline
+# We focus on a short period for this example
+# The resolution of the timeline defines the resolution of the simulation
+timeline <- seq(as.POSIXct("2016-03-26 00:00:00", tz = "UTC"),
+                as.POSIXct("2016-03-27 09:18:00", tz = "UTC"),
+                by = "2 mins")
+# Reduce the timeline if your computer struggles!
+# timeline <- timeline[1:500]
+timespan <- lubridate::interval(min(timeline), max(timeline))
 
 
-########### the worked example
+###########################
+#### Movement model
 
-troutdata %>% 
-  mutate(lun=lunar::lunar.illumination(dt)) %>% 
-  ggplot(aes(lun, Data))+
-  geom_point()+
-  theme_set+
-  labs(x="Lunar illumination", y="Temperature")
+#### Define state
+state      <- "StateXY"
 
-troa<-troutdata %>% 
-  mutate(foid=factor(oid)) %>% 
-  mutate(lun=lunar::lunar.illumination(dt))
+#### Define movement model
+# This is a simple movement model for illustrative purposes based on:
+# * A distribution of step lengths, truncated by mobility;
+# * `mobility` is the _maximum_ distance travelled between between two time steps;
+# * A distribution of headings;
+mobility   <- 1100
+model_move <-
+  model_move_xy(.mobility = mobility,
+                .dbn_length = glue("truncated(Gamma(1.0, 250.0), upper = {mobility})"),
+                .dbn_heading = "Uniform(-pi, pi)")
 
-m0<-troa %>% 
-  bam(Data ~ lun, data=., family=Gamma(link="log")) 
+#### Visualise movement model
+# Plot movement model components
+plot(model_move)
+# Visualise realisations of the movement model
+sim_path_walk(.map = map,
+              .timeline = timeline,
+              .state = state,
+              .model_move = model_move,
+              .n_path = 4L, .one_page = TRUE)
 
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response")) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data))+
-  geom_line(colour="red")+
-  theme_set+
-  labs(x="Moonlight", y="Temperature")
-
-m0<-troa %>% 
-  bam(Data ~ lun+s(foid, bs="re"), data=., family=Gamma(link="log")) 
-
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line(colour="red")+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
-
-m0<-troa %>% 
-  bam(Data ~ s(lun, k=7)+s(foid, bs="re"), data=., family=Gamma(link="log")) 
-
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line(colour="red")+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
-
-m01<-troa %>% 
-  mutate(yd=yday(dt), h=hour(dt)) %>% 
-  bam(Data ~ s(lun, k=7)+s(foid, bs="re")+
-        s(h, bs="cc", k=5)+
-        s(lon, lat, k=15), data=., family=Gamma(link="log")) 
-
-BTN::aurland %>% 
-  st_transform(32633) %>% 
-  slice(2)
-
-tibble(x=c(7.26, 7.32),
-       y=c(60.85, 60.87)) %>% 
-  st_as_sf(., coords=c("x", "y")) %>% 
-  st_set_crs(4326) %>% 
-  st_transform(32633)
-
-sp<-expand_grid(lon=seq(80077, 83583, by=10),
-                lat=seq(6770907, 6772740, by=10)) %>% 
-  st_as_sf(., coords=c("lon", "lat")) %>% 
-  st_set_crs(32633) %>% 
-  st_intersection(BTN::aurland %>% 
-                    slice(1) %>% 
-                    st_transform(32633)) %>% 
-  as(., "Spatial") %>% 
-  as_tibble %>% 
-  dplyr::rename(lon=coords.x1, lat=coords.x2) %>% 
-  dplyr::select(lon, lat)
-
-sp %>% 
-  slice(1) %>% 
-  expand_grid(., lun=seq(0, 1, by=0.1), h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., exclude=c("s(foid)"))) %>% 
-  ggplot(aes(h, lun, fill=value))+
-  geom_raster()+
-  scale_fill_gradientn(colours=Thermimage::flirpal)+
-  theme_classic()+
-  theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Hour", y="Moonlight", fill="Predicted Temperature")
-
-expand_grid(sp, lun=seq(0, 1, by=0.1), h=c(0, 12), yd=200) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)", "s(lon,lat)", "s(h)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line()+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
+# (Optional) tasks
+# * How would you modify this movement model to use different parameters?
+# * How would you change the distributions in the model?
+# * Why doesn't the movement model ever jump on land?
+# * Can the simulated individual leave the study area?
+# * What happens if you set:
+# *     dbn_heading = VonMises(0.0, 0.25)?
+# *     dbn_heading = VonMises(0.0, 1.0)? Why?
+# * Can you formulate a suitable model for one of your study species?
+# * Can you visualise how distinct movement models differ?
 
 
-sp %>% 
-  expand_grid(., lun=seq(0, 1, by=0.3)) %>% 
-  mutate(foid=1, h=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lon, lat, fill=value))+
-  geom_raster()+
-  scale_fill_gradientn(colours=Thermimage::flirpal)+
-  theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="UTM (x)", y="UTM (y)", fill="Predicted Temperature")+
-  coord_fixed(ratio=1)+
-  facet_wrap(~lun)
+###########################
+#### Observation model(s)
 
-gratia::draw(m01)
+#### Process datasets
+# `patter` does not process datasets for you!
 
-sp %>% 
-  expand_grid(., lun=seq(0, 1, by=0.05), h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)", "s(lon,lat)"))) %>% 
-  ggplot(aes(lun, value, colour=h))+
-  geom_point()+
-  theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  scale_fill_gradientn(colours=Thermimage::flirpal)
+#### Define datasets _for a selected animal and time period_
+# Acoustic receivers & detections
+moorings <-
+  moorings |>
+  as.data.frame() |>
+  mutate(receiver_timespan = interval(receiver_start, receiver_end)) |>
+  filter(lubridate::int_overlaps(receiver_timespan, timespan)) |>
+  mutate(receiver_timespan = NULL) |>
+  as.data.table()
+det <-
+  detections |>
+  filter(individual_id == 28L) |>
+  filter(timestamp %within% timespan) |>
+  as.data.table()
+# Depth observations
+arc <-
+  archival |>
+  filter(individual_id == 28L) |>
+  filter(timestamp %within% timespan) |>
+  as.data.table()
+# (optional) Validate acoustic/archival datasets
+datalist <- pat_setup_data(.map = map,
+                           .detections = det,
+                           .moorings = moorings,
+                           .services = NULL,
+                           .archival = arc)
 
-coef(m01) %>% 
-  data.frame %>% 
-  rownames_to_column() %>% 
-  as_tibble %>% 
-  dplyr::filter(grepl("foid", rowname)) %>% 
-  bind_cols(troa %>% distinct(foid)) %>% 
-  left_join(troutdata %>% 
-              group_by(oid) %>% 
-              dplyr::summarise(m=mean(Data)) %>% 
-              dplyr::rename(foid=oid) %>% 
-              mutate(foid=factor(foid))) %>% 
-  dplyr::rename(value=2) %>% 
-  ggplot(aes(reorder(foid, value), value, colour=m))+
-  geom_point()+
-  coord_flip()+
-  theme_set+
-  labs(x="ID", y="Random intercept of temperature", size="Length (mm)", colour="True mean temperature")+
-  scale_colour_viridis_c()
+#### Assemble observations (acoustics)
+# Assemble a timeline of acoustic observations (0, 1) and model parameters
+# * We include ModelObsAcousticLogisTrunc model parameters via `.moorings`
+# * We revise the detection range currently recorded in the dataset
+moorings[, receiver_gamma := 3000]
+acc <- assemble_acoustics(.timeline = timeline,
+                          .detections = det,
+                          .moorings = moorings)
+
+#### Assemble archival observations
+# Assemble a timeline of archival observations and model parameters
+# * Here, we include model parameters for `ModelObsDepthNormalTrunc`
+# * We need to include a large uncertainty b/c the bathymetry in this region is complex
+# * And the example bathymetry dataset is extremely coarse
+arc <- assemble_archival(.timeline = timeline,
+                         .archival =
+                           arc |>
+                           rename(obs = depth) |>
+                           mutate(depth_sigma = 75,
+                                  depth_deep_eps = 150))
+
+#### Plot observation models
+# The first ModelObsAcousticLogisTrunc observation model
+plot(model_obs_acoustic_logis_trunc(acc[1, ]))
+# The first ModelObsDepthNormalTrunc observation model
+plot(model_obs_depth_normal_trunc_seabed(arc[1, ]), .seabed = 50)
+abline(v = 50, lty = 3)
+
+#### Collect observations
+yobs <- list(ModelObsAcousticLogisTrunc = acc,
+             ModelObsDepthNormalTruncSeabed = arc)
+
+# (Optional) tasks
+# * Plot the observed time series
+# * Manually plot the observation model
+# * Do you understand how we have specified observation model parameters here?
+# * How would you assemble another kind of dataset? (Hint, see `?assemble`)
+# * Can you assemble your own datasets for the particle filter?
+# * Where can you find out more about the built-in `ModelObs` structures?
+# * How would you implement another `ModelObs` structure?
+# * Can you implement the `ModelObsContainer` structure for these data?
+# * Can you implement the `ModelObsDepthUniformSeabed` structure for these data?
+
+# (optional) Additional tasks
+# * Are you familiar with the `data.table` package in R?
+# - `patter` functions use `data.table`s instead of `data.frame`s
+# - In fact, the code above that looks like dplyr, is `data.table` at the back
+# - `data.table`s are similar but can behave much faster
+# - But you might also find that `data.table`s behave in unexpected ways
+# * Can you understand what happens in the code below?
+arc_tmp1 <- copy(arc)
+arc_tmp2 <- arc_tmp1
+arc_tmp2[, tmp := 1L]
+arc_tmp1
+
+
+###########################
+#### Inference
+
+#### Run forward filter (~2 s)
+fwd <- pf_filter(.timeline = timeline,
+                 .state = state,
+                 .xinit = NULL,
+                 .yobs = yobs,
+                 .model_move = model_move,
+                 .n_particle = 2e4L)
+if (!fwd$callstats$convergence) {
+  warning("The filter failed to converge!")
+}
+
+# (optional) Tasks
+# * How would you set the initial location in the filter?
+# * What happens if you set an initial location?
+# * How does computation time change in the filter if you change the timeline or .n_particle?
+# * What happens if you change other arguments, such as .n_record?
+# * Do you understand the object returned by `pf_filter()` (hint: see `?`pf_particles-class``)
+# * How can we plot the probability distribution for an individual's location at a selected timestep?
+# * What about creating an animation of particle movement (hint: see ?`plot_xyt()`)?
+# * What checks would you do to check `pf_filter()` has worked as expected?
+# * At the moment of detection, how far are particles from receivers? Why?
+# * How would you analyse filter diagnostics (hint: see `fwd$diagnostics`)?
+# * Are filter diagnostics acceptable in this example?
+# * How could we improve filter diagnostics?
+# * If we write the outputs from `fwd` to file, how much storage space do we need?
+# * What does that tell us about the storage requirements of a full-scale analysis?
+# * How would you use the `.batch` argument to handle memory requirements?
+
+#### Run backward information filter (~23 s)
+bwd <- pf_filter(.timeline = timeline,
+                 .state = state,
+                 .yobs = yobs,
+                 .model_move = model_move,
+                 .n_particle = 2e5L,
+                 .direction = "backward")
+if (!bwd$callstats$convergence) {
+  warning("The filter failed to converge!")
+}
+
+# (optional) Tasks
+# * Do convergence properties of the forward filter differ from the backward filter in this case?
+# * Why do we need so many particles for the backward run in this case?
+# * (hint: plot the data)
+# * How might you solve these challenges (hint: see `?assemble_acoustics_containers`)?
+
+#### Run two-filter smoother (~1 s)
+# (optional) For certain kinds of movement models we can set a 'validity map' in Julia
+# * This defines the region within which any movement is valid
+# * This speeds up the computation of normalisation constants for smoothing
+# * (which account for automatic truncation of the movement model by land)
+set_vmap(.map = map, .mobility = mobility, .plot = TRUE)
+# Run the smoother
+smo <- pf_smoother_two_filter(.n_particle = 500L)
+
+# (optional) tasks
+# * Do you get a warning, such as:
+# All smoothing weights (from xbwd[k, t] to xfwd[j, t - 1]) are zero at 200 time step(s) (20.0 %).
+# * How would you mitigate this warning?
+# * Repeat the tasks from the filter to examine the behaviour of the smoother
+# * How does computation time change if you change .n_particle?
+# * How does this differ from the filter? Why?
+# * Is .n_particle = 500L satisfactory here?
+# * How repeatable are multiple runs of the particle filter/smoother?
+
+#### Map utilisation distribution with/without kernel smoothing (~1 s)
+pp      <- par(mfrow = c(1, 2))
+ud_pou  <- map_pou(.map = map, .coord = smo$states)
+ud_dens <- map_dens(.map = map,
+                   .coord = smo$states,
+                   .discretise = TRUE,
+                   .fterra = TRUE,
+                   .sigma = bw.diggle)
+par(pp)
+
+# (optional) tasks
+# * How do we interpret these maps?
+# * Are you satisfied with this result? If not, why not? How would you improve it?
+# * For `map_pou()`, how do the results change with grid resolution?
+# * For `map_dens()`, what is the pixel resolution used by the estimation routine?
+#   (hint: see ?`density.ppp` and follow the documentation)
+# * Does this differ from the grid resolution of the map?
+# * How does `map_dens()` depend on the `sigma` argument?
+# * (Advanced) How would you write a loop to trial different sigma parameters?
+#   * Hint: see `?patter::cl_lapply()` and `?terra::wrap()`
+#   * Can you boost efficiency by parallelising over chunks?
+# * How can you boost the speed of utilisation-distribution estimation?
+# * How sensitive are these results to our movement and observation models?
+# * Can you create the same maps from the filters?
+# * How do they differ from maps from the smoother and why?
+# * How would you add core/home ranges to these maps (hint: see `?map_hr`)?
+# * How would you quantify residency in a 1 km radius around (709619.4, 6255728)?
+
+
+###########################
+###########################
+#### Workflow with simulated data
+
+###########################
+#### Study system
+
+# We will use the timeline and map defined above.
+
+# (optional) tasks
+# * Experiment with this choice
+
+
+###########################
+#### Movement model
+
+# We use the state & movement model defined above.
+
+# (optional) tasks
+# * Experiment with this choice
+
+#### Simulate a path
+path_coord <- sim_path_walk(.map = map,
+                            .timeline = timeline,
+                            .state = state,
+                            .model_move = model_move)
+
+#### Visualise the pattern of space use for the simulated path
+path_ud <- map_dens(.map = map,
+                    .coord = path_coord,
+                    .discretise = TRUE,
+                    .fterra = TRUE,
+                    .sigma = bw.diggle)
+
+# (optional) tasks
+# * How are path coordinates handled differently than particles in `map_dens()`?
+
+
+###########################
+#### Simulate observations
+
+#### Define sensor parameters for the `ModelObsAcousticLogisTrunc` struct
+# In this example, we use the real receiver positions
+pars_ModelObsAcousticLogisTrunc <- model_obs_acoustic_logis_trunc(moorings)
+# In long form, this is basically:
+list(
+  ModelObsAcousticLogisTrunc =
+    moorings |>
+    select(sensor_id = "receiver_id",
+           "receiver_x", "receiver_y",
+           "receiver_alpha", "receiver_beta", "receiver_gamma") |>
+    as.data.table()
+)
+# Plot the observation model(s)
+plot(pars_ModelObsAcousticLogisTrunc)
+
+#### Define sensor parameters for the `ModelObsDepthNormalTruncSeabed` struct
+pars_ModelObsDepthNormalTruncSeabed <- model_obs_depth_normal_trunc_seabed(
+  data.table(sensor_id = 1L,
+             depth_sigma = 100,
+             depth_deep_eps = 100)
+)
+# This is basically:
+list(
+  ModelObsDepthNormalTruncSeabed =
+  data.table(sensor_id = 1L,
+             depth_sigma = 100,
+             depth_deep_eps = 100)
+)
+# Plot the observation model(s)
+plot(pars_ModelObsDepthNormalTruncSeabed)
+
+#### Collect sensor parameters for each data type
+pars_ModelObs <- c(pars_ModelObsAcousticLogisTrunc,
+                   pars_ModelObsDepthNormalTruncSeabed)
+
+#### Simulate observations
+obs <- sim_observations(.timeline = timeline,
+                        .model_obs = pars_ModelObs)
+
+# (optional) tasks
+# * Why is the `sensor_id` field included in all `ModelObs` structures?
+# * What does `sensor_id = 1L` mean in `pars_ModelObsDepthNormalTrunc`?
+# * For a given `ModelObs` structure, how do we find out the required parameters?
+# * How would you simulate observations for a hypothetical receiver array?
+#   (hint: see `?sim_array`)
+# * Can you simulate observations using another `ModelObs` structure?
+# * What is the structure of the object returned by `sim_observations()`?
+# * Can you plot the simulated observations?
+# * How would you check the simulated observations align with the observation models?
+
+
+###########################
+#### Inference
+
+# (optional) tasks
+# * Can you implement the filter and smoother using simulated data?
+# * How do reconstructed maps match the simulated data?
+# * Why are there differences?
+# * How does the map change if you only model one data type?
+# * What does this tell us about the relative contribution of the two datasets in this system?
+# * If you were planning a study in this system, would you invest in more receivers or more archival tags based on these results? Why?
+# * Can you create a comparable map using the `coa()` function?
+# * How does a map based on COAs differ?
+# * Which map is preferable and why?
+
+
+#### End of code.
+###########################
+###########################
+
 ~~~
 {: .language-r}
+
+## Resources
+
+- (Optional) Workshop materials. For introductory resources, see the [patter-workshops](https://github.com/edwardlavender/patter-workshops) repository. This includes a [background presentation](https://github.com/edwardlavender/patter-workshops/blob/main/doc/context/context-v1.pdf) and [introduction to patter](https://github.com/edwardlavender/patter-workshops/blob/main/doc/usage/patter-v.2.0-0/patter-intro.html) and the practical [script](https://github.com/edwardlavender/patter-workshops/blob/main/R/patter-intro.R). To view the presentations, you need to download them and open them in your web browser (the second one is a HTML file).
+- (Recommended) Blog posts. For a gentle introduction to patter, see this [Methods Blog](https://methodsblog.com/2025/05/15/tracking-animals-with-particles/). For further discussion and exposure to patter's limitations, see the [Methods Blog](https://methodsblog.com/2025/12/22/tracking-animals-in-an-underwater-maze/) accompanying our related Wahoo.jl package.
+-	(Recommended) Review. For a review of state-space modelling in acoustic telemetry systems, see [here](https://doi.org/10.1111/2041-210x.70186). The paper covers the motivation for a model-based approach, model formulation and approaches to fitting state-space models to data. 
+- (Optional) Supporting literature. See [here](https://doi.org/10.1111/2041-210X.70028) (Method) and [here](https://doi.org/10.1111/2041-210X.70029) (Package) for the peer-reviewed literature associated with patter. If you're interested in practical applications, see [here](https://doi.org/10.1126/sciadv.adx0255) for a flapper skate study and [here](https://doi.org/10.64898/2026.06.01.729394) for a lake trout example. 
+- (Optional) Julia. If you're interested in Julia, this [blog](https://nrennie.rbind.io/blog/introduction-julia-r-users/) is a nice introduction for R users. Knowledge of Julia is not essential for the practical but is required for advanced patter users. 
+
+## Questions
+
+If you have any questions before the workshop, post an issue on GitHub [here](https://github.com/edwardlavender/patter/issues) or contact e.lavender@napier.ac.uk. 

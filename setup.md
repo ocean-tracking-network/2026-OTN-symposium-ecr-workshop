@@ -13,6 +13,7 @@ You will requre 1) all the correct programs, 2) all the listed R packages 3) the
 > 
 > **Software & Environment**
 > - I have installed the latest version of R and RStudio. Note: Older versions may cause compatibility issues with some packages.
+> - I have installed Julia.
 > - I have run the setup script from this page, and installed all relevant packages
 > 
 > **Files & Resources**
@@ -27,6 +28,7 @@ You will requre 1) all the correct programs, 2) all the listed R packages 3) the
 ### Please see the attached document for program instructions: - [Program Install Instructions.docx](/Resources/install_instructions.docx)
 -  R version: 4.5.x or newer 
 -  RStudio
+- Julia 
 
 Once all of the programs are installed, open RStudio and run the below package install scripts. It's best to run it line by line instead of all at once in case there are errors.
 
@@ -36,18 +38,61 @@ Once all of the programs are installed, open RStudio and run the below package i
 
 ```r
 
-# Tidyverse (data cleaning and arrangement)
-install.packages('tidyverse')
+# General packages
+install.packages('tidyverse') #For data cleaning and arrangement)
+install.packages('lubridate') # Lubridate - part of Tidyverse, improves the process of creating date objects
+install.packages("viridis") #color scales in this package are easier to read by those with colorblindness, and print well in grey scale.
 
-# Lubridate - part of Tidyverse, improves the process of creating date objects
-install.packages('lubridate')
+```
 
+```r
+# Patter lesson - install packages for patter
+
+install.packages(c("devtools", "pkgbuild", "rmarkdown"))
+
+# Install the {JuliaCall} package:
+install.packages("JuliaCall")
+# Use the development version if the CRAN version is unavailable:
+devtools::install_github("JuliaInterop/JuliaCall",
+                         dependencies = TRUE)
+# Run julia_setup() to set up the Julia installation 
+# * This includes an installJulia argument if the above Julia installation options fail 
+# * Set `JULIA_HOME` if Julia is not found (see `?julia_setup()`)
+# * Note this may take several minutes
+# * Set `rebuild = TRUE` if you've previously used JuliaCall on an older R version
+library(JuliaCall)
+julia <- julia_setup()
+
+# Validate the Julia installation:
+# * TRUE: `Julia` is working! 
+# * FALSE: `Julia` is not working (see below)! 
+isTRUE(try(julia_eval('true'), silent = TRUE))
+
+devtools::install_github("edwardlavender/patter", 
+                         dependencies = TRUE, 
+                         build_vignettes = rmarkdown::pandoc_available())
+
+# Load & attach {patter}:
+library(patter)
+
+# Option (A): Connect to `Julia`: 
+# * Set `JULIA_HOME` if 'Julia not found'
+# * Set `JULIA_PROJ` to use a local Julia project (recommended)
+# * Set `JULIA_NUM_THREADS` to exploit multi-threading (recommended)
+# * Set `.pkg_update = TRUE` if you've just installed a newer version of `patter`
+# * Set `JULIA_PATTER_SOURCE` = "dev" as well if you've installed from the `dev` branch
+# * See `julia_connect()` for further guidance
+julia <- julia_connect()
+
+julia_validate() #This should return NULL
+```
+
+```r
 # GAMs lesson - install packages for modelling and plotting.
+
 install.packages("mgcv")
 install.packages("gratia")
 
-# Viridis - color scales in this package are easier to read by those with colorblindness, and print well in grey scale.
-install.packages("viridis")
 ```
 
 

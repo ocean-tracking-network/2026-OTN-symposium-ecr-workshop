@@ -1,402 +1,498 @@
 ---
 title: Spatial and Temporal Modelling with GAMs
+teaching: 80
 exercises: 0
 questions:
   - What are GAMs?
-  - How can I use GAMs to visualise my data? 
+  - Why are GAMs a useful tool for modelling animal movements?
+  - How do I make a GAM in R? 
 ---
 
-GAM is short for 'Generalized Additive Model', a type of statistical model. In this lesson, we will be using GAMs to visualise our data. 
+GAM is short for 'Generalized Additive Model', a type of statistical model. 
 
-While we are still developing this lesson as templated text like our other lessons, we can provide the Powerpoint slides for the GAMs talk given by Dr. Lennox at the CANSSI Early Career Researcher workshop. You can access the slides [here](../Resources/GAMs.pptx).
+This hands-on coding workshop will walk through the basics of spatiotemporal modelling with Generalized Additive Models (GAMs) using the *mgcv* package in R. 
 
-The following code is meant to be run alongside this presentation. 
+GAMs offer functions that allow some control for spatial and temporal autocorrelation, flexibility for data that may have multiple inflection points, and have been widely applied to ecological data in the literature. Attendees will use a real acoustic telemetry dataset to model the relationship of animal detections with space and time, evaluate their model, and use it to predict spatial patterns in animal movements.
+
+## Background on GAMs
+
+This workshop will begin with a presentation - see [the slide deck here](https://docs.google.com/presentation/d/13S-oN1ISKv1PZpZL_Gr4ciPz4ili1mzFjsq109hS4m8/edit?usp=sharing)
+
+
+
+## Setup
+~~~
+## ---- Install ----
+
+library(mgcv)
+library(gratia)
+library(tidyverse)
+
+# Load dataset for blue sharks
+nsbs_matched_2021 <- read_csv("nsbs_matched_detections_2021.zip") #Import 2021 detections
+nsbs_matched_2022 <- read_csv("nsbs_matched_detections_2022.zip") # Import 2022 detections
+nsbs_matched_full <- rbind(nsbs_matched_2021, nsbs_matched_2022) #Now join the two dataframes
+
+# remove release records for modelling
+nsbs_matched_full <- nsbs_matched_full %>% 
+  filter(receiver != 'release') 
+~~~
+{: .language-r}
+
+
+## Data Exploration
+
+One of the first steps to making model is understanding your dataset. In this example we will look at the tag sensor records and determine if there are any that might be interesting to explore.
+
+On your own dataset you'd want to do a much deeper dive into the dataset, making maps, plots, and summaries.
 
 ~~~
-require(BTN) # remotes::install_github("robertlennox/BTN")
-require(tidyverse)
-require(mgcv)
-require(lubridate)
-require(Thermimage)
-require(lunar)
-library(sf)
-library(gratia)
+## ---- Data Exploration ----
 
+#What sensors do we have?
+nsbs_matched_full %>% 
+  group_by(sensorType) %>%  
+  summarize(count=n()) 
+# Pressure and Temperature values exist
+
+nsbs_matched_full %>% 
+  filter(sensorType == 'pressure') %>% 
+  ggplot(aes(dateCollectedUTC, sensorValue, colour = detectedBy))+
+  scale_y_reverse() +
+  geom_point() +
+  facet_wrap(~catalogNumber)
+# a few animals have Pressure values.
+~~~
+{: .language-r}
+
+
+## Research Question
+
+Models are useful tools to explain relationships, make predictions, and test hypotheses. But they are most useful when they are designed specifically to answer a biological question. Including every covariate and "seeing what is significant" can lead to erroneous results. It's important to forumlate your models based on biological questions.
+
+As they say.... "all models are wrong, but some are useful".
+
+#### Research question: how does Depth vary across time?  
+
+## Data Prep
+
+Now that we have our research question, we can format our dataset so that we can feed it into our model. This includes some important formatting:
+- "animal ID" (called catalogNumber in our dataset) needs to be formatted as a *factor* to use as a random effect
+- our sensor data should be subsampled to one sample per hour (per individual) to reduce temporal autocorrelation
+
+~~~
+## ---- Data Prep ----
+
+# take the first Pressure reading per hour per day for each individual 
+# to decrease temporal autocorrelation
+
+model_data <- nsbs_matched_full %>% 
+  filter(sensorType == 'pressure') %>% 
+  filter(sensorValue >= 0) %>%  #filter out bad records
+  group_by(catalogNumber, hour_floor = floor_date(dateCollectedUTC, "hour")) %>% 
+  filter(dateCollectedUTC == min(dateCollectedUTC)) %>% 
+  select(catalogNumber, station, dateCollectedUTC, hour_floor,
+         sensorType, sensorValue) %>% 
+  ungroup() %>% 
+  # need individual ID as a factor in order to use as a random effect
+  # may need columns for other time bins to try different models
+  mutate(fcatnum = as.factor(catalogNumber), 
+         day = yday(hour_floor),
+         week=week(hour_floor))
+
+names(model_data)
+~~~
+{: .language-r}
+
+
+## Model Building
+Now we can begin to make a model. In the next several sections we will make multiple models to compare different model formulations, and learn about building and coding GAMs piece-by-piece.
+
+
+### Comparing Smoothers
+
+A smooth is what makes predictions between points make sense, but there are multiple types.
+~~~
+### Comparing different smoothers ----
+
+# a smooth is what makes predictions between points make sense
+
+#circular
+a <-model_data %>% 
+  mutate(h=hour(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ s(h, bs="cc", k=5),  #circular spline for hour
+      data=., 
+      method="fREML", 
+      discrete=T)
+
+#thin plate (default)
+b <-model_data %>% 
+  mutate(h=hour(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ s(h, bs="tp", k=5),  #thin plate spline for hour
+      data=.,  
+      method="fREML", 
+      discrete=T)
+
+# compare the two models
+
+# set a theme for ourselves to use in our plots
 theme_set<-theme_classic()+
   theme(text=element_text(size=20), axis.text=element_text(colour="black"))+
-  theme(legend.position="top") # set a theme for ourselves
+  theme(legend.position="top") 
 
-aur<-BTN::aurland %>% 
-  st_transform(32633) %>% 
-  slice(2) %>% 
-  ggplot()+
-  geom_sf()
-
-#Load RData
-load("YOUR/PATH/TO/data/otn/troutdata.RDS")
-
-# first plot of the data
-
-troutdata %>% 
-  ggplot(aes(dt, Data, colour=Data))+
-  geom_point()+
-  theme_classic()+
-  scale_colour_gradientn(colours=Thermimage::flirpal)
-
-# mapping out the data
-
-aur+
-  geom_point(data=troutdata %>% 
-               group_by(lon, lat) %>% 
-               dplyr::summarise(m=mean(Data)),
-             aes(lon, lat, colour=m))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  theme_bw()
-
-# 4. going for smooth
-a<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5), data=., method="fREML", discrete=T)
-
-b<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="tp", k=5), data=., , method="fREML", discrete=T)
-
-c<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ h, data=., , method="fREML", discrete=T)
+# plot the predictions from the different smoothers
 
 tibble(h=c(0:23)) %>% 
   mutate(circular=predict.gam(a, newdata=.)) %>% 
   mutate(thin_plate=predict.gam(b, newdata=.)) %>% 
-  # mutate(v3=predict.gam(c, newdata=.)) %>% 
   gather(key, value, -h) %>% 
   ggplot(aes(h, value, colour=key))+
-  geom_line(size=2)+
-  theme_set+
+  geom_line(linewidth=2)+
+  theme_set +
   labs(x="Hour", y="Predicted Depth", colour="Model")+
-  scale_y_reverse(limits=c(20, 0))+
+  scale_y_reverse(limits=c(50, 0))+
   geom_hline(yintercept=0)+
   coord_polar()
 
-#6. model fitting vehicle
+# here you can see that the circular smooth was able to predict time more accurately,
+# where hour 23 and hour 0 needed to have similar values
+~~~
+{: .language-r}
 
-m1<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  mutate(foid=factor(oid)) %>% 
-  gam(Data ~ s(h, k=5)+s(foid, bs="re"), data=., method="REML")
 
-m2<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  mutate(foid=factor(oid)) %>% 
-  bam(Data ~ s(h, k=5)+s(foid, bs="re"), data=., method="fREML", discrete=T)
+### Adding Random Effects
+
+Next we can add a random effect of individual to account for individual variation. This is only possible if individual ID is a FACTOR. We did this already in the data prep step so we are ready!
+
+We're also going to test two different functions to make a GAM --> `mgcv::gam` and `mgcv::bam`
+
+~~~
+### Adding random effects ----
+
+# use GAM first
+
+m1 <-model_data %>% 
+  mutate(h=hour(dateCollectedUTC)) %>% 
+  gam(sensorValue ~ 
+        s(h, bs = "cc", k=5)+ 
+        s(fcatnum, bs="re"), #random effect of individual!
+      data=., 
+      method="REML")
+
+#use BAM next to compare
+
+m2 <-model_data %>% 
+  mutate(h=hour(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ 
+        s(h, bs = "cc", k=5)+ 
+        s(fcatnum, bs="re"), #random effect of individual!
+      data=., 
+      method="fREML", 
+      discrete=T)
+
+# predict depth use for one individual to compare GAM and BAM
 
 tibble(h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(gam=predict.gam(m1, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(bam=predict.gam(m2, newdata=., type="response", exclude=c("s(foid)"))) %>%
+  mutate(fcatnum='NSBS-Lindsay') %>% 
+  mutate(gam=predict.gam(m1, newdata=., type="response", exclude=c("s(fcatnum)"))) %>% 
+  mutate(bam=predict.gam(m2, newdata=., type="response", exclude=c("s(fcatnum)"))) %>%
   mutate(i=gam-bam) %>% 
-  gather(key, value, -h, -foid, -i) %>% 
+  gather(key, value, -h, -fcatnum, -i) %>% 
   ggplot(aes(h, value, colour=i))+
   geom_line(size=2)+
   theme_set+
   facet_wrap(~key)+
-  labs(x="Hour", y="Predicted temperature", colour="Difference between predictions")+
-  theme(legend.key.width=unit(3, "cm"))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)
+  labs(x="Hour", y="Predicted depth", colour="Difference between predictions")+
+  theme(legend.key.width=unit(3, "cm"))
+
+# GAM and BAM are super similar! the same output
+~~~
+{: .language-r}
 
 
-#8. check your knots
+### Learning about Knots
+How "wiggly" should our data be? How many inflection points do we expect? How do we keep the predictive power without overfitting? Arguably the most important part of formulating your GAM will be setting the knots in the function.
 
-k1<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5), data=., method="fREML", discrete=T)
+~~~
+### Playing with different knots ----
 
-k2<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=15), data=., , method="fREML", discrete=T)
+# try 5 "wiggles"
+k1<-model_data %>% 
+  mutate(h=hour(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ s(h, bs="cc", k=5), #k value sets the knots
+      data=., 
+      method="fREML", 
+      discrete=T)
 
+# try 15 "wiggles"
+k2<-model_data %>% 
+  mutate(h=hour(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ s(h, bs="cc", k=15), #many more knots
+      data=., 
+      method="fREML", 
+      discrete=T)
+
+#compare the two!
 tibble(h=c(0:23)) %>% 
   mutate("k=5"=predict.gam(k1, newdata=., type="response")) %>% 
   mutate("k=15"=predict.gam(k2, newdata=., type="response")) %>% 
   gather(key, value, -h) %>% 
-  ggplot(aes(h, value/10, colour=key))+
+  ggplot(aes(h, value, colour=key))+
   geom_line(size=2)+
   theme_set+
-  labs(y="Temperature", x="Hour", colour="model")
+  labs(y="Pressure", x="Hour", colour="model")
 
-#9. temporal dependency
+#Higher K = more inflection points
+~~~
+{: .language-r}
 
 
-t1<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  group_by(foid, dti=round_date(dt, "1 hour")) %>% 
-  dplyr::filter(dt==min(dt)) %>% 
-  bam(Data ~ s(h, k=5, bs="cc")+s(yd, k=10)+s(foid, bs="re"), data=., method="fREML", discrete=T)
+### Dealing with Autocorrelation
 
-t2<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  group_by(foid, dti=round_date(dt, "1 hour")) %>% 
-  bam(Data ~ s(h, k=5, bs="cc")+s(yd, k=10)+s(foid, bs="re"), data=., method="fREML", discrete=T)
+Tobler's Law: things nearby in space or time are more similar than those further away. This results in autocorrelation: where one measurement is correlated with the next measurement of the same variable. This violates model assumptions of independence.
 
+For temporal autocorrelation, we subset our data already! For spatial autocorrelation we can add in spatial info to the model.
+
+~~~
+### Dealing with autocorrelation ----
+
+# temporal autocorrelation - sub-setting
+# When we prepped model_data we subset to only include the first pressure per hour (per shark). 
+# What if we didn'tt do that?
+
+
+#new model_data that does NOT subset the time
+model_data2 <- nsbs_matched_full %>% 
+  filter(sensorType == 'pressure') %>% 
+  filter(sensorValue >= 0) %>%  #filter out bad records
+  select(catalogNumber, station, dateCollectedUTC, 
+         sensorType, sensorValue) %>% 
+  ungroup() %>% 
+  # need individual ID as a factor in order to use as a random effect
+  # may need columns for other time bins to try different models
+  mutate(fcatnum = as.factor(catalogNumber), 
+         day = yday(dateCollectedUTC),
+         week=week(dateCollectedUTC))
+
+
+# model with subset data
+t1<-model_data %>% 
+  mutate(h=hour(dateCollectedUTC), yd=yday(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ 
+        s(h, k=5, bs="cc")+
+        s(yd, k=10)+
+        s(fcatnum, bs="re"), 
+      data=., 
+      method="fREML", 
+      discrete=T)
+
+# model with NOT subset data
+t2<-model_data2 %>% 
+  mutate(h=hour(dateCollectedUTC), yd=yday(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ 
+        s(h, k=5, bs="cc")+
+        s(yd, k=10)+
+        s(fcatnum, bs="re"), 
+      data=., 
+      method="fREML", 
+      discrete=T)
+
+#compare them
 expand_grid(h=c(12),
-            yd=c(32:60),
-            foid=1) %>% 
-  mutate(partial_series=predict.gam(t1, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(full_series=predict.gam(t2, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  gather(key, value, -h, -foid, -yd) %>% 
+            yd=c(149:350),
+            fcatnum='NSBS-Lindsay') %>% 
+  mutate(partial_series=predict.gam(t1, newdata=., type="response", exclude=c("s(fcatnum)"))) %>% 
+  mutate(full_series=predict.gam(t2, newdata=., type="response", exclude=c("s(fcatnum)"))) %>% 
+  gather(key, value, -h, -fcatnum, -yd) %>% 
   ggplot(aes(yd, value, colour=key))+
-  geom_point(data=troutdata %>% 
-               mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)),
-             aes(yday(dt), Data), inherit.aes=F)+
+  geom_point(data=nsbs_matched_full %>% 
+               mutate(h=hour(dateCollectedUTC), yd=yday(dateCollectedUTC), fcatnum=factor(catalogNumber)),
+             aes(yday(dateCollectedUTC), sensorValue), inherit.aes=F)+
   geom_path(size=2)+
   theme_set+
-  labs(x="Date", y="Temperature", colour="Model")
-
-# 10. spatial dependency
-
-aur+
-  geom_point(data=troutdata %>% 
-               group_by(lon, lat) %>% 
-               dplyr::summarise(m=mean(Data)),
-             aes(lon, lat, colour=m))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  theme_bw()+
-  theme_set+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  labs(colour="mean temperature")
-
-#11. interactions
-
-mi<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  bam(Data ~ te(h, yd, bs=c("cc", "tp"), k=c(5, 10))+
-        s(foid, bs="re"), data=., family=Gamma(link="log"), method="fREML", discrete=T)
-
-ms<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5)+
-        s(yd, bs="tp", k=10)+
-        s(foid, bs="re"), data=., family=Gamma(link="log"), method="fREML", discrete=T)
+  labs(x="Date", y="Pressure", colour="Model")
 
 
-p1<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Simple model, AIC=426 801") %>% 
+# spatial autocorrelation - add in spatial terms
+
+# we need to have lat/long in our model data
+# let's add it back into the dataset
+model_data3 <- nsbs_matched_full %>% 
+  filter(sensorType == 'pressure') %>% 
+  filter(sensorValue >= 0) %>%  #filter out bad records
+  group_by(catalogNumber, hour_floor = floor_date(dateCollectedUTC, "hour")) %>% 
+  filter(dateCollectedUTC == min(dateCollectedUTC)) %>% 
+  select(catalogNumber, station, dateCollectedUTC, hour_floor,
+         sensorType, sensorValue, decimalLatitude, decimalLongitude) %>% 
+  ungroup() %>% 
+  # need individual ID as a factor in order to use as a random effect
+  # may need columns for other time bins to try different models
+  mutate(fcatnum = as.factor(catalogNumber), 
+         day = yday(hour_floor),
+         week=week(hour_floor))
+
+names(model_data3)
+
+#spatial model
+s1 <- model_data3 %>% 
+  mutate(h=hour(dateCollectedUTC), yd=yday(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ 
+        s(h, k=5, bs="cc")+
+        s(yd, k=10)+
+        s(decimalLongitude,decimalLatitude, k = 15)+ #adding in your spatial term, just like this!
+        s(fcatnum, bs="re"), 
+      data=., 
+      method="fREML", 
+      discrete=T)
+#even if adding in the spatial terms isn't part of your hypothesis testing
+#it will always be more correct to avoid assumption violations.
+#animal behaviour will nearly always be influenced by space in some way.
+
+~~~
+{: .language-r}
+
+
+
+### Interactions and Families
+
+What if you want to know how the hourly depth-use changes through the year? An interaction between hour-of-day and day-of-year can do this! Many animals change their diel patterns across the year.
+
+Adding in regression family is also important so impossible values aren't predicted. For example: pressure should never be negative, therefore predictions shouldn't be "normal/Gaussian".
+
+~~~
+### Adding in interactions and family ----
+
+i1 <- model_data %>% 
+  mutate(h=hour(dateCollectedUTC), yd=yday(dateCollectedUTC)) %>% 
+  bam(sensorValue ~ 
+        te(h, yd, bs=c("cc", "tp"), k=c(5, 10))+ #interaction between hour and day
+        s(fcatnum, bs="re"), 
+      data=., 
+      family=Gamma(link="log"), #family is based on response variable type
+      method="fREML", 
+      discrete=T)
+
+#lets see if hourly depth is predicted to change over the year!
+expand_grid(h=c(0:23), yd=c(149:350)) %>% 
+  mutate(fcatnum='NSBS-Lindsay') %>% 
+  mutate(value=predict.gam(i1, newdata=., type="response", exclude=c("s(fcatnum)"))) %>% 
+  #mutate(i="Simple model, AIC=426 801") %>% 
   ggplot(aes(yd, h, fill=value))+
   geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)
-
-p2<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(mi, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Interaction model, AIC=425 805") %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)
-
-AIC(mi, ms)
-gridExtra::grid.arrange(p1, p2)
-
-# is it the moon?
-
-a<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Simple model, AIC= -262 975") %>% 
-  mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-  mutate(l=lunar::lunar.illumination(dt)) %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)+
-  geom_point(data=expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-               mutate(foid=1) %>% 
-               mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-               mutate(i="Simple model, AIC= -262 975") %>% 
-               mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-               mutate(l=lunar::lunar.illumination(dt)) %>% 
-               distinct(dt, yd, l),
-             aes(yd, 10, size=l), inherit.aes=F, colour="white")
-
-b<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(mi, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Interaction model, AIC=425 805") %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)+
-  geom_point(data=expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-               mutate(foid=1) %>% 
-               mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-               mutate(i="Simple model, AIC=426 801") %>% 
-               mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-               mutate(l=lunar::lunar.illumination(dt)) %>% 
-               distinct(dt, yd, l),
-             aes(yd, 10, size=l), inherit.aes=F, colour="white")
-
-
-gridExtra::grid.arrange(a, b)
-
-
-########### the worked example
-
-troutdata %>% 
-  mutate(lun=lunar::lunar.illumination(dt)) %>% 
-  ggplot(aes(lun, Data))+
-  geom_point()+
-  theme_set+
-  labs(x="Lunar illumination", y="Temperature")
-
-troa<-troutdata %>% 
-  mutate(foid=factor(oid)) %>% 
-  mutate(lun=lunar::lunar.illumination(dt))
-
-m0<-troa %>% 
-  bam(Data ~ lun, data=., family=Gamma(link="log")) 
-
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response")) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data))+
-  geom_line(colour="red")+
-  theme_set+
-  labs(x="Moonlight", y="Temperature")
-
-m0<-troa %>% 
-  bam(Data ~ lun+s(foid, bs="re"), data=., family=Gamma(link="log")) 
-
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line(colour="red")+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
-
-m0<-troa %>% 
-  bam(Data ~ s(lun, k=7)+s(foid, bs="re"), data=., family=Gamma(link="log")) 
-
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line(colour="red")+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
-
-m01<-troa %>% 
-  mutate(yd=yday(dt), h=hour(dt)) %>% 
-  bam(Data ~ s(lun, k=7)+s(foid, bs="re")+
-        s(h, bs="cc", k=5)+
-        s(lon, lat, k=15), data=., family=Gamma(link="log")) 
-
-BTN::aurland %>% 
-  st_transform(32633) %>% 
-  slice(2)
-
-tibble(x=c(7.26, 7.32),
-       y=c(60.85, 60.87)) %>% 
-  st_as_sf(., coords=c("x", "y")) %>% 
-  st_set_crs(4326) %>% 
-  st_transform(32633)
-
-sp<-expand_grid(lon=seq(80077, 83583, by=10),
-                lat=seq(6770907, 6772740, by=10)) %>% 
-  st_as_sf(., coords=c("lon", "lat")) %>% 
-  st_set_crs(32633) %>% 
-  st_intersection(BTN::aurland %>% 
-                    slice(1) %>% 
-                    st_transform(32633)) %>% 
-  as(., "Spatial") %>% 
-  as_tibble %>% 
-  dplyr::rename(lon=coords.x1, lat=coords.x2) %>% 
-  dplyr::select(lon, lat)
-
-sp %>% 
-  slice(1) %>% 
-  expand_grid(., lun=seq(0, 1, by=0.1), h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., exclude=c("s(foid)"))) %>% 
-  ggplot(aes(h, lun, fill=value))+
-  geom_raster()+
-  scale_fill_gradientn(colours=Thermimage::flirpal)+
-  theme_classic()+
+  scale_fill_viridis_c()+
   theme_set+
   theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Hour", y="Moonlight", fill="Predicted Temperature")
-
-expand_grid(sp, lun=seq(0, 1, by=0.1), h=c(0, 12), yd=200) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)", "s(lon,lat)", "s(h)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line()+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
+  labs(x="Date", y="Hour", fill="Predicted pressure")
+#hmmm no signal here for the sharks
+#we might not have enough data!
+~~~
+{: .language-r}
 
 
-sp %>% 
-  expand_grid(., lun=seq(0, 1, by=0.3)) %>% 
-  mutate(foid=1, h=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lon, lat, fill=value))+
-  geom_raster()+
-  scale_fill_gradientn(colours=Thermimage::flirpal)+
-  theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="UTM (x)", y="UTM (y)", fill="Predicted Temperature")+
-  coord_fixed(ratio=1)+
-  facet_wrap(~lun)
+## Model Checking
 
-gratia::draw(m01)
+After creating your model, there are different ways to check it. Most importantly - it needs to be biologically relevant. Generally, you are comparing the "fit" of predictions to observed data, and checking out the residuals to understand what isn't being captured.
 
-sp %>% 
-  expand_grid(., lun=seq(0, 1, by=0.05), h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)", "s(lon,lat)"))) %>% 
-  ggplot(aes(lun, value, colour=h))+
-  geom_point()+
-  theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  scale_fill_gradientn(colours=Thermimage::flirpal)
+~~~
+## Model checking ----
 
-coef(m01) %>% 
-  data.frame %>% 
-  rownames_to_column() %>% 
-  as_tibble %>% 
-  dplyr::filter(grepl("foid", rowname)) %>% 
-  bind_cols(troa %>% distinct(foid)) %>% 
-  left_join(troutdata %>% 
-              group_by(oid) %>% 
-              dplyr::summarise(m=mean(Data)) %>% 
-              dplyr::rename(foid=oid) %>% 
-              mutate(foid=factor(foid))) %>% 
-  dplyr::rename(value=2) %>% 
-  ggplot(aes(reorder(foid, value), value, colour=m))+
-  geom_point()+
-  coord_flip()+
-  theme_set+
-  labs(x="ID", y="Random intercept of temperature", size="Length (mm)", colour="True mean temperature")+
-  scale_colour_viridis_c()
+# compare model i1 (random effects, interactions, family added) 
+# with model a (very simple)
+
+AIC(a,i1)
+
+# the gratia package has some great diagnostic plots
+
+# things to look for:
+# QQ plot should have a straight line
+# Histogram of residuals should be normal around 0
+# Observed vs fitted should be along a 1:1 line
+# Residuals vs linear predictor should not have observable patterns
+
+#gam.check(i1) #fine but not great
+appraise(i1) #assessment plots/QQ/etc. Really good!
+appraise(a)
+
+draw(i1) #partial effects plots - start picking out effects patterns!
+draw(a)
+
+summary(i1)
+
+# looking at the residuals can also help understand how your model is performing
+# In a well-fitted model, residuals should be normally distributed around 0. 
+
+hist(resid(i1))
+acf(resid(i1))
+
+hist(resid(a))
+acf(resid(a))
+
+#in summary - i1 is better than a!
+#but this model still kinda sucks - missing an important term for sure!
+
+~~~
+{: .language-r}
+
+
+## Supplemental Notes
+
+We didn't have enough time to go through everything in this workshop. Here's some more thoughts:
+
+
+### Spatial Predictions Mapping
+
+~~~
+## Supplemental notes ----
+
+# out of scope for this workshop, but with s1 (spatial data) you can 
+# plot your predictions onto a shapefile!
+
+# example workflow:
+
+#- first use expand_grid: to make a df with all lat/longs, and dates, for your dataset
+#     - NOTE: ensure lat/lon are in easting and northing so they make a perfect grid
+#- predict.gam: across your new df (examples above using predict.gam)
+#- turn predictions into geometry (st_as_sf or something similar!)
+#- cut out predictions that are on land (st_intersect with your water shapefile)
+#- plot your basemap (land and water) PLUS your predictions (coloured by value) to make a heatmap of some kind
+
+# example heatmap code:
+
+#ggplot()+
+#  geom_sf(data = WATER_SHAPEFILE) + #water outline
+#  geom_sf(data = predicted_values_df, #predictions within the water
+#          aes(utm_easting, utm_northing, col = value)) +
+#  scale_colour_viridis_c(option = 'turbo') +
+#  facet_wrap(~yd) 
+~~~
+{: .language-r}
+
+
+### Notes about Count Models
+
+~~~
+## Notes about count models ----
+
+# Should add absences into the model to improve.
+# So a dataset with "number of individuals detected at each receiver, each week" would need
+# 0s added for weeks/receivers where no individuals were detected.
+# Then use GAM to predict count between receivers. Turn it into a heatmap!
+
+# To account for loss of individuals as the study progresses, you
+# can add an offset for the # of “active tags” so the count would be a proportion (# detected/ # that COULD have been detected)
+
+# To understand seasonal distribution you can use a 3-way interactions between space and time
+# it can be coded like:
+
+#weeky_indiv_count ~  
+#  te(utm_easting, utm_northing, week, 
+#     d = c(2,1), # dimensions - a lat/lon smooth (2 dimensions) through time (1 dimension), rather than a full 3-way interaction between lat/lon/week. 
+#     k=c(50, 15), # k for space, k for time. for lat/long: this is actually sqrt(50), so actually 7 knots each
+#     bs=c('tp','cc')), 
+#knots=list(week=c(0.5, 53.5)), #specifying that knots for week should overlap (my df had 53 weeks)
+#data =.,
+#family = 'nb',
+#method = 'fREML',
+#discrete = T)
 ~~~
 {: .language-r}

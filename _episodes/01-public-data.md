@@ -1,6 +1,6 @@
 ---
-title: Background
-teaching: 5
+title: Working with Public OTN Data
+teaching: 60
 exercises: 0
 questions:
     - "What is the Ocean Tracking Network?"
