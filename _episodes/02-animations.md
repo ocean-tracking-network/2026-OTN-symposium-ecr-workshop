@@ -1,5 +1,6 @@
 ---
-title: Spatial and Temporal Modelling with GAMs
+title: Animations of Animal Movements
+teaching: 45
 exercises: 0
 questions:
   - What are GAMs?
