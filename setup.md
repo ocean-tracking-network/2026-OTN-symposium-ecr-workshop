@@ -46,6 +46,29 @@ install.packages("viridis") #color scales in this package are easier to read by 
 ```
 
 ```r
+# Animations lesson
+
+## install packages that you don't already have:
+install.packages(c("remotes", "sf", "stars", "ggplot2", "dplyr",
+  "basemaps", "gganimate", "terra", "tidyterra",  "ggnewscale",
+  "geosphere", "ggnewscale", "here"))
+
+install.packages("rnaturalearthhires",
+  repos = "https://ropensci.r-universe.dev",
+  type = "source") # high resolution basemaps for RNaturalEarth
+install.packages("rnaturalearth")
+
+install.packages("curl") # when installing curl, RStudio will ask "Do you want install from sources the package which needs compilation?" Select no!
+
+remotes::install_github("ocean-tracking-network/glatos")
+# If this installation fails and you receive an error message including HTTP 401, this means you need a GitHub Personal Access Token, which can be created at https://github.com/settings/tokens.
+# GitHub is a website with online repositories for R packages. Nearly all R packages are hosted on GitHub, in addition to the CRAN repository that we access through "install.packages()"
+# You then install the package with the following line. For privacy, do not share your token with others, and delete it from your R script after you install glatos.
+#remotes::install_github("ocean-tracking-network/glatos", auth_token = "paste-token-inside-these-quotation-marks")
+
+```
+
+```r
 # Patter lesson - install packages for patter
 
 install.packages(c("devtools", "pkgbuild", "rmarkdown"))
@@ -92,7 +115,38 @@ julia_validate() #This should return NULL
 
 install.packages("mgcv")
 install.packages("gratia")
+```
 
+```r
+# YAPS lesson.
+install.packages("splitstackshape") #for splitting out datetime stamps for graphing
+install.packages("chron")
+install.packages("scales")
+install.packages("ggmap")
+install.packages("sf")
+install.packages("moveHMM")
+install.packages("purrr")
+install.packages("readr")
+install.packages("circular") #Von Mises distribution for angles
+install.packages("amt")
+install.packages("terra")
+install.packages("ggeffects")
+install.packages("TMB")
+install.packages("parellel")
+install.packages("furrr")
+install.packages("landscapemetrics")
+install.packages("survival")
+
+
+#Optional, if you want to follow along some of the example code
+install.packages(c('tidyverse', 'devtools'))
+library(devtools)
+library(TMB)
+devtools::install_github("baktoft/yaps")
+ library(yaps)
+ options(digits.secs = 3)
+ #test to make sure YAPS will work
+ testYaps()
 ```
 
 

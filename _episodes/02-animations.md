@@ -3,401 +3,392 @@ title: Animations of Animal Movements
 teaching: 45
 exercises: 0
 questions:
-  - What are GAMs?
-  - How can I use GAMs to visualise my data? 
+  - How can I animate animal movements?
+  - What are some challenges with animations? 
 ---
 
-GAM is short for 'Generalized Additive Model', a type of statistical model. In this lesson, we will be using GAMs to visualise our data. 
+## Animations of animal movements with R
 
-While we are still developing this lesson as templated text like our other lessons, we can provide the Powerpoint slides for the GAMs talk given by Dr. Lennox at the CANSSI Early Career Researcher workshop. You can access the slides [here](../Resources/GAMs.pptx).
+Animations of the movements of tagged animals provide helpful insights in telemetry studies. However, animations can be challenging to make. The goal of this workshop is to equip you with the tools needed to make animations of your telemetry studies.
 
-The following code is meant to be run alongside this presentation. 
+These animations are facilitated by the `glatos` R package, produced by the [Great Lakes Acoustic Telemetry Observation System](glatos.org). Chris Holbrook, Todd Hayden, Thomas Binder, and Jon Pye developed/maintain this package (thank you!). For more information on the `glatos` R package, please refer to:
+
+-   <https://rdrr.io/github/jsta/glatos/man/glatos.html>
+
+-   <https://github.com/ocean-tracking-network/glatos>
+
+We will combine `glatos` with the widely-used `ggplot2` and `sf` packages to make animations. `ggplot2` provides an easy way to producing beautiful data visualizations in R. `sf`, along with the companion `terra` and `stars` packages, provides a unified approach to working with spatial data in R. The `gganimate` package allows to produce animated ggplots. Since we are using these broadly-applicable R packages, you can extend this workshop's code to visualize data sets beyond acoustic telemetry data.
+
+In this workshop, we will make animations of the movements of six juvenile Atlantic salmon in Passamaquoddy Bay, New Brunswick. These data come from open-access OTN project PBSM (<https://members.oceantrack.org/project?ccode=PBSM>). For more information about these smolts and the broader tagging study, see English et al. (2023) "Determining early marine survival and predation by endothermic predators on acoustically tagged Atlantic salmon (*Salmo salar*) post-smolts," published in the Canadian Journal of Fisheries and Aquatic Sciences (<http://dx.doi.org/10.1139/cjfas-2023-0206>).
+
+If you have any issues with this code after the workshop, please reach out and I'm happy to help. My email is wgreentree\@outlook.com.
 
 ~~~
-require(BTN) # remotes::install_github("robertlennox/BTN")
-require(tidyverse)
-require(mgcv)
-require(lubridate)
-require(Thermimage)
-require(lunar)
-library(sf)
-library(gratia)
+#### Installing packages:
 
-theme_set<-theme_classic()+
-  theme(text=element_text(size=20), axis.text=element_text(colour="black"))+
-  theme(legend.position="top") # set a theme for ourselves
+library(ggplot2) # plots
+library(dplyr) # data wrangling
+library(lubridate) # handles date/times
+library(glatos) # interpolate movement tracks
+library(sf) # spatial data (vectors)
+library(terra) # spatial data (rasters)
+library(tidyterra) # visualizing raster data
+library(basemaps) # satellite base map
+library(geosphere) # spatial data
+library(stars) # spatial data (raster cubes)
+library(gganimate) # animations
+library(here) # for loading data
 
-aur<-BTN::aurland %>% 
-  st_transform(32633) %>% 
-  slice(2) %>% 
-  ggplot()+
-  geom_sf()
+# The sf package defaults to using spherical geometry, but many of the shapefiles that we encounter in the real world (including those used in this workshop) were developed with planar geometry. Therefore, we will tell sf to use planar geometry.
+sf::sf_use_s2(FALSE) 
 
-#Load RData
-load("YOUR/PATH/TO/data/otn/troutdata.RDS")
-
-# first plot of the data
-
-troutdata %>% 
-  ggplot(aes(dt, Data, colour=Data))+
-  geom_point()+
-  theme_classic()+
-  scale_colour_gradientn(colours=Thermimage::flirpal)
-
-# mapping out the data
-
-aur+
-  geom_point(data=troutdata %>% 
-               group_by(lon, lat) %>% 
-               dplyr::summarise(m=mean(Data)),
-             aes(lon, lat, colour=m))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  theme_bw()
-
-# 4. going for smooth
-a<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5), data=., method="fREML", discrete=T)
-
-b<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="tp", k=5), data=., , method="fREML", discrete=T)
-
-c<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ h, data=., , method="fREML", discrete=T)
-
-tibble(h=c(0:23)) %>% 
-  mutate(circular=predict.gam(a, newdata=.)) %>% 
-  mutate(thin_plate=predict.gam(b, newdata=.)) %>% 
-  # mutate(v3=predict.gam(c, newdata=.)) %>% 
-  gather(key, value, -h) %>% 
-  ggplot(aes(h, value, colour=key))+
-  geom_line(size=2)+
-  theme_set+
-  labs(x="Hour", y="Predicted Depth", colour="Model")+
-  scale_y_reverse(limits=c(20, 0))+
-  geom_hline(yintercept=0)+
-  coord_polar()
-
-#6. model fitting vehicle
-
-m1<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  mutate(foid=factor(oid)) %>% 
-  gam(Data ~ s(h, k=5)+s(foid, bs="re"), data=., method="REML")
-
-m2<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  mutate(foid=factor(oid)) %>% 
-  bam(Data ~ s(h, k=5)+s(foid, bs="re"), data=., method="fREML", discrete=T)
-
-tibble(h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(gam=predict.gam(m1, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(bam=predict.gam(m2, newdata=., type="response", exclude=c("s(foid)"))) %>%
-  mutate(i=gam-bam) %>% 
-  gather(key, value, -h, -foid, -i) %>% 
-  ggplot(aes(h, value, colour=i))+
-  geom_line(size=2)+
-  theme_set+
-  facet_wrap(~key)+
-  labs(x="Hour", y="Predicted temperature", colour="Difference between predictions")+
-  theme(legend.key.width=unit(3, "cm"))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)
-
-
-#8. check your knots
-
-k1<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5), data=., method="fREML", discrete=T)
-
-k2<-troutdata %>% 
-  mutate(h=hour(dt)) %>% 
-  bam(Data ~ s(h, bs="cc", k=15), data=., , method="fREML", discrete=T)
-
-tibble(h=c(0:23)) %>% 
-  mutate("k=5"=predict.gam(k1, newdata=., type="response")) %>% 
-  mutate("k=15"=predict.gam(k2, newdata=., type="response")) %>% 
-  gather(key, value, -h) %>% 
-  ggplot(aes(h, value/10, colour=key))+
-  geom_line(size=2)+
-  theme_set+
-  labs(y="Temperature", x="Hour", colour="model")
-
-#9. temporal dependency
-
-
-t1<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  group_by(foid, dti=round_date(dt, "1 hour")) %>% 
-  dplyr::filter(dt==min(dt)) %>% 
-  bam(Data ~ s(h, k=5, bs="cc")+s(yd, k=10)+s(foid, bs="re"), data=., method="fREML", discrete=T)
-
-t2<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  group_by(foid, dti=round_date(dt, "1 hour")) %>% 
-  bam(Data ~ s(h, k=5, bs="cc")+s(yd, k=10)+s(foid, bs="re"), data=., method="fREML", discrete=T)
-
-expand_grid(h=c(12),
-            yd=c(32:60),
-            foid=1) %>% 
-  mutate(partial_series=predict.gam(t1, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(full_series=predict.gam(t2, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  gather(key, value, -h, -foid, -yd) %>% 
-  ggplot(aes(yd, value, colour=key))+
-  geom_point(data=troutdata %>% 
-               mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)),
-             aes(yday(dt), Data), inherit.aes=F)+
-  geom_path(size=2)+
-  theme_set+
-  labs(x="Date", y="Temperature", colour="Model")
-
-# 10. spatial dependency
-
-aur+
-  geom_point(data=troutdata %>% 
-               group_by(lon, lat) %>% 
-               dplyr::summarise(m=mean(Data)),
-             aes(lon, lat, colour=m))+
-  scale_colour_gradientn(colours=Thermimage::flirpal)+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  theme_bw()+
-  theme_set+
-  theme(legend.position="top", legend.key.width=unit(3, "cm"))+
-  labs(colour="mean temperature")
-
-#11. interactions
-
-mi<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  bam(Data ~ te(h, yd, bs=c("cc", "tp"), k=c(5, 10))+
-        s(foid, bs="re"), data=., family=Gamma(link="log"), method="fREML", discrete=T)
-
-ms<-troutdata %>% 
-  mutate(h=hour(dt), yd=yday(dt), foid=factor(oid)) %>% 
-  bam(Data ~ s(h, bs="cc", k=5)+
-        s(yd, bs="tp", k=10)+
-        s(foid, bs="re"), data=., family=Gamma(link="log"), method="fREML", discrete=T)
-
-
-p1<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Simple model, AIC=426 801") %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)
-
-p2<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(mi, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Interaction model, AIC=425 805") %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)
-
-AIC(mi, ms)
-gridExtra::grid.arrange(p1, p2)
-
-# is it the moon?
-
-a<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Simple model, AIC= -262 975") %>% 
-  mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-  mutate(l=lunar::lunar.illumination(dt)) %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)+
-  geom_point(data=expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-               mutate(foid=1) %>% 
-               mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-               mutate(i="Simple model, AIC= -262 975") %>% 
-               mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-               mutate(l=lunar::lunar.illumination(dt)) %>% 
-               distinct(dt, yd, l),
-             aes(yd, 10, size=l), inherit.aes=F, colour="white")
-
-b<-expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(mi, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  mutate(i="Interaction model, AIC=425 805") %>% 
-  ggplot(aes(yd, h, fill=value))+
-  geom_raster()+
-  scale_fill_viridis_c()+theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Date", y="Hour", fill="Predicted temperature")+
-  facet_wrap(~i)+
-  geom_point(data=expand_grid(h=c(0:23), yd=c(182:212)) %>% 
-               mutate(foid=1) %>% 
-               mutate(value=predict.gam(ms, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-               mutate(i="Simple model, AIC=426 801") %>% 
-               mutate(dt=ymd("2022-12-31")+days(yd)) %>% 
-               mutate(l=lunar::lunar.illumination(dt)) %>% 
-               distinct(dt, yd, l),
-             aes(yd, 10, size=l), inherit.aes=F, colour="white")
-
-
-gridExtra::grid.arrange(a, b)
-
-
-########### the worked example
-
-troutdata %>% 
-  mutate(lun=lunar::lunar.illumination(dt)) %>% 
-  ggplot(aes(lun, Data))+
-  geom_point()+
-  theme_set+
-  labs(x="Lunar illumination", y="Temperature")
-
-troa<-troutdata %>% 
-  mutate(foid=factor(oid)) %>% 
-  mutate(lun=lunar::lunar.illumination(dt))
-
-m0<-troa %>% 
-  bam(Data ~ lun, data=., family=Gamma(link="log")) 
-
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response")) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data))+
-  geom_line(colour="red")+
-  theme_set+
-  labs(x="Moonlight", y="Temperature")
-
-m0<-troa %>% 
-  bam(Data ~ lun+s(foid, bs="re"), data=., family=Gamma(link="log")) 
-
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line(colour="red")+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
-
-m0<-troa %>% 
-  bam(Data ~ s(lun, k=7)+s(foid, bs="re"), data=., family=Gamma(link="log")) 
-
-tibble(lun=seq(0,1, by=0.1)) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m0, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line(colour="red")+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
-
-m01<-troa %>% 
-  mutate(yd=yday(dt), h=hour(dt)) %>% 
-  bam(Data ~ s(lun, k=7)+s(foid, bs="re")+
-        s(h, bs="cc", k=5)+
-        s(lon, lat, k=15), data=., family=Gamma(link="log")) 
-
-BTN::aurland %>% 
-  st_transform(32633) %>% 
-  slice(2)
-
-tibble(x=c(7.26, 7.32),
-       y=c(60.85, 60.87)) %>% 
-  st_as_sf(., coords=c("x", "y")) %>% 
-  st_set_crs(4326) %>% 
-  st_transform(32633)
-
-sp<-expand_grid(lon=seq(80077, 83583, by=10),
-                lat=seq(6770907, 6772740, by=10)) %>% 
-  st_as_sf(., coords=c("lon", "lat")) %>% 
-  st_set_crs(32633) %>% 
-  st_intersection(BTN::aurland %>% 
-                    slice(1) %>% 
-                    st_transform(32633)) %>% 
-  as(., "Spatial") %>% 
-  as_tibble %>% 
-  dplyr::rename(lon=coords.x1, lat=coords.x2) %>% 
-  dplyr::select(lon, lat)
-
-sp %>% 
-  slice(1) %>% 
-  expand_grid(., lun=seq(0, 1, by=0.1), h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., exclude=c("s(foid)"))) %>% 
-  ggplot(aes(h, lun, fill=value))+
-  geom_raster()+
-  scale_fill_gradientn(colours=Thermimage::flirpal)+
-  theme_classic()+
-  theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="Hour", y="Moonlight", fill="Predicted Temperature")
-
-expand_grid(sp, lun=seq(0, 1, by=0.1), h=c(0, 12), yd=200) %>% 
-  mutate(foid=1) %>% 
-  mutate(p=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)", "s(lon,lat)", "s(h)"))) %>% 
-  ggplot(aes(lun, p))+
-  geom_point(data=troa, aes(lun, Data, colour=factor(foid)))+
-  geom_line()+
-  theme_set+
-  guides(colour=F)+
-  labs(x="Moonlight", y="Temperature")
-
-
-sp %>% 
-  expand_grid(., lun=seq(0, 1, by=0.3)) %>% 
-  mutate(foid=1, h=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)"))) %>% 
-  ggplot(aes(lon, lat, fill=value))+
-  geom_raster()+
-  scale_fill_gradientn(colours=Thermimage::flirpal)+
-  theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  labs(x="UTM (x)", y="UTM (y)", fill="Predicted Temperature")+
-  coord_fixed(ratio=1)+
-  facet_wrap(~lun)
-
-gratia::draw(m01)
-
-sp %>% 
-  expand_grid(., lun=seq(0, 1, by=0.05), h=c(0:23)) %>% 
-  mutate(foid=1) %>% 
-  mutate(value=predict.gam(m01, newdata=., type="response", exclude=c("s(foid)", "s(lon,lat)"))) %>% 
-  ggplot(aes(lun, value, colour=h))+
-  geom_point()+
-  theme_set+
-  theme(legend.key.width=unit(3, "cm"))+
-  scale_fill_gradientn(colours=Thermimage::flirpal)
-
-coef(m01) %>% 
-  data.frame %>% 
-  rownames_to_column() %>% 
-  as_tibble %>% 
-  dplyr::filter(grepl("foid", rowname)) %>% 
-  bind_cols(troa %>% distinct(foid)) %>% 
-  left_join(troutdata %>% 
-              group_by(oid) %>% 
-              dplyr::summarise(m=mean(Data)) %>% 
-              dplyr::rename(foid=oid) %>% 
-              mutate(foid=factor(foid))) %>% 
-  dplyr::rename(value=2) %>% 
-  ggplot(aes(reorder(foid, value), value, colour=m))+
-  geom_point()+
-  coord_flip()+
-  theme_set+
-  labs(x="ID", y="Random intercept of temperature", size="Length (mm)", colour="True mean temperature")+
-  scale_colour_viridis_c()
+# with s2 turned off, the following warnings will pop-up. They are not issues:
+# although coordinates are longitude/latitude, st_intersection assumes that they are planar
+# Warning: attribute variables are assumed to be spatially constant throughout all geometries
 ~~~
 {: .language-r}
+
+
+The data for this workshop are combined into one list (`data/data.RDS`). We will extract each dataset from this list as follows:
+
+~~~
+data <- readRDS(here::here("data", "data.RDS"))
+
+# basemap of Nova Scotia and New Brunswick
+nova.scotia <- data$nova_scotia
+
+# Passamaquoddy Bay shapefile
+passamaquoddy.bay <- data$passamaquoddy_bay
+
+# Magaguadavic River shapefile
+magaguadavic.river <- data$magaguadavic_river
+
+# Atlantic salmon detections
+salmon.dets <- data$salmon_detections
+
+# Telemetry array in Passamaquoddy Bay in May 2021
+stations <- data$receiver_stations
+~~~
+{: .language-r}
+
+
+#### 1. View receiver array and detection data
+
+First, let's take make simple maps to view the receiver array in Passamaquoddy Bay and view each fish's detections.
+~~~
+ggplot() +
+  geom_sf(data = nova.scotia) +
+  geom_point(data = stations,
+            aes(x = longitude, y = latitude),
+            colour = "orange") +
+  coord_sf(xlim = c(-67.2, -66.8), ylim = c(44.85, 45.2),
+           expand = FALSE) +
+  theme_bw()
+~~~
+{: .language-r}
+
+A problem immediately jumps out: Straight-line movement paths cross land.
+
+~~~
+ggplot() +
+  geom_sf(data = nova.scotia) +
+  geom_path(data = salmon.dets,
+            aes(x = longitude, y = latitude, colour = tagName),
+            show.legend = FALSE) +
+  geom_point(data = salmon.dets,
+             aes(x = longitude, y = latitude, colour = tagName),
+             show.legend = FALSE) +
+  coord_sf(xlim = c(-67.2, -66.8), ylim = c(44.85, 45.2),
+           expand = FALSE) +
+  theme_bw()
+~~~
+{: .language-r}
+
+#### 2. Constrain movement tracks to stay in water
+
+We need to force the movement tracks to stay in the water.
+
+We will need a shapefile of the ocean. When animating the movements of coastal species in regions with complex coastlines, we need a very high resolution shapefile to ensure that movement tracks do not cross small islands or other coastal land masses.
+
+-   A very high resolution shapefile of Canada's oceans is available at <https://open.canada.ca/data/en/dataset/6c78fb2f-d23b-45b4-b3af-cc6f6cc4fff8>
+
+-   A medium resolution shapefile of the world's oceans is available at <https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-ocean/>
+
+We will use first option. However, if we only had access to a shapefile of land masses (e.g., `nova.scotia`), we can convert that shapefile to an ocean shapefile. See the code in Appendix A.
+
+~~~
+# plot Passamaquoddy Bay shapefile. Note that we need to add the Magaguadavic River where tagged Atlantic salmon were released.
+ggplot() +
+  geom_sf(data = passamaquoddy.bay, fill = "lightblue") +
+  geom_point(data = salmon.dets, aes(x = longitude, y = latitude),
+             alpha = 0.1)
+
+# add Magaguadavic River to the ocean shapefile with sf::st_union(). st_union() will join the ocean and river polygons seamlessly
+water <- st_union(passamaquoddy.bay, magaguadavic.river)
+
+# inspect that st_union() worked. There is no black seam between the start of the ocean and the river, which demonstrates a successful union.
+ggplot() +
+  geom_sf(data = water, fill = "lightblue")+
+  coord_sf(xlim = c(-66.92, -66.8), ylim = c(45.1, 45.2),
+           expand = FALSE) +
+  theme_bw()
+~~~
+{: .language-r}
+
+Next, we will use `water` to make a **transition layer**. A transition layer is a raster that defines where a tagged animal's movement track can (water) and cannot go (land). In other words, the transition layer is a grid of 1's and 0's that dictate where a movement track can and cannot go.
+
+We produce the transition layer with `glatos::make_transition()`. Since the transition layer is converting ocean polygons (called "vector data") to a grid (called "raster data"), we manually set the desired resolution of those grid cells.
+
+We want a fine-enough resolution that each land mass is at least two grid cells wide in the transition layer, as each grid cell is connected in 16 directions. See the `make_transition()` documentation for more.
+
+When making a high resolution transition layer of your study, make sure to save the transition layer using `saveRDS(transition, filename = "")`. The transition layer takes a long time to make, so we don't want to repeat this effort many times.
+
+
+~~~
+# to speed up computation, we will limit water to the area needed, based on where the six salmon were detected
+study.area.box <- st_bbox(c(xmin = -67.2, ymin = 44.85,
+  xmax = -66.7, ymax = 45.2), crs = st_crs(4326))
+
+study.area.water <- st_crop(water, study.area.box)
+ggplot() + geom_sf(data = study.area.water, fill = "lightblue")
+
+class(study.area.water) # sfc_MULTIPOLYGON
+study.area.water <- st_as_sf(study.area.water)
+# glatos does not work with sfc_MULTIPOLYGON, but it will work with a sf object
+
+# Make translation layer -----
+# longitude and latitude degrees are not equal. glatos provides a function to convert metres to decimal degrees. For broader study areas, even with complex coastlines, 200 m is usually a good starting resolution. However, Passamaquoddy Bay has a very narrow causeway that requires a much finer transition layer (here, 30 m)
+res <- glatos::scale_meters_to_degrees(x = 30, study.area.water, ref = "center")
+res
+
+# Creating the translation layer takes 1.3 minutes on my laptop. You can run the next line of code, or load an already-created translation layer from the data.RDS file:
+
+# transition <- glatos::make_transition(study.area.water,
+#   res = c(res[1], res[2]), epsg = 4326)
+# transition <- transition$rast
+# saveRDS(transition, "data/transition-layer.RDS") 
+
+transition <- data$transition_layer # load saved version
+
+# take a close look to compare the transition layer to receiver locations
+plot(transition)
+
+# zoom in to ensure that this thin causeway is preserved as land in the transition layer
+plot(transition, 
+     xlim = c(-67.04, -67.032), ylim = c(44.936, 44.942))
+~~~
+{: .language-r}
+
+#### 3. Interpolate movement tracks that stay in the water
+
+We use the transition layer to interpolate movement tracks between detections and ensure the tracks stay in the water.
+
+With large data sets and/or very fine-scale transition layers, the interpolation may not run easily on your personal laptop. To get around this, you can run the interpolation in batches (e.g., 10-50 tags at a time). I split my dataset (\~500,000 detections) into a few batches and run on our lab's desktop with 32 GM RAM. Each batch can take more than an hour.
+
+~~~
+# First, let's convert the detection data into the format needed for glatos
+glatos.dets <- dplyr::select(salmon.dets, tagName, 
+  dateCollectedUTC, longitude, latitude)
+names(glatos.dets) <- c("animal_id", "detection_timestamp_utc",
+                        "deploy_long", "deploy_lat")
+glatos.dets$detection_timestamp_utc <- lubridate::as_datetime(glatos.dets$detection_timestamp_utc)
+
+# Interpolate movement tracks: 
+# Interpolating movement tracks takes a long time with such a fine-scale transition layer (12 minutes on my laptop). I interpolated the movement tracks with the following code, but we will use a saved version of the tracks in the workshop. 
+
+# tracks <- glatos::interpolate_path(glatos.dets,
+#                           trans = transition$transition,
+#                           lnl_thresh = 2, int_time_stamp = 600)
+
+tracks <- data$interpolated_tracks # saved version to reduce time
+
+# lnl_tresh determines the degree of linear vs non-linear interpolation. The lnl_thresh default is 0.9, but we increase the value when tracks are being interpolated over land
+# int_time_stamp determines the frequency of interpolation (e.g., int_time_stamp = 600 means one interpolated position per 600 seconds, or every 10 minutes). For my own work (study area scale: 100s of kilometres), I interpolate one position every 30 minutes.
+
+# interpolated tracks
+ggplot() +
+  geom_sf(data = water, fill = "lightblue") + 
+  geom_path(data = tracks,
+            aes(x = longitude, y = latitude, color = animal_id)) +
+  coord_sf(xlim = c(-67.2, -66.8), ylim = c(44.85, 45.2)) +
+  scale_x_continuous(breaks = c(-67.2, -67, -66.8)) +
+  scale_y_continuous(breaks = c(44.9, 45, 45.1, 45.2)) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        panel.background = element_rect(fill = "grey90"))
+
+# zoom in to ensure that tracks don't cross the thin causeway
+ggplot() +
+  geom_sf(data = water, fill = "lightblue") + 
+  geom_path(data = tracks,
+            aes(x = longitude, y = latitude, color = animal_id)) +
+  coord_sf(xlim = c(-67.2, -66.9), ylim = c(44.85, 45)) +
+  scale_x_continuous(breaks = c(-67.2, -67, -66.8)) +
+  scale_y_continuous(breaks = c(44.9, 45, 45.1, 45.2)) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        panel.background = element_rect(fill = "grey90"))
+~~~
+{: .language-r}
+
+#### 4. Animation
+
+We will extract a satellite basemap for the study area through Esri's World Imagery dataset. This satellite data comes as a "raster cube," as it consists of three layers - red saturation, blue saturation, and green saturation values. We will combine them into a single colour layer.
+
+The `basemaps` package requires internet access. If you don't have internet access, you can substitute with the nova.scotia basemap. Just convert it to Web Mercator, using `st_transform(nova.scotia, crs = st_crs(3857))`.
+
+~~~
+# load in satellite basemap with the basemaps package
+options(tz="UTC") # with this year's changes to time zones in Canada, R does not yet recognize all Windows time zones. You may need to tell R a time zone so that it can use the following basemaps function.
+satellite <- basemaps::basemap_stars(ext = study.area.box,
+  map_service = "esri", map_type = "world_imagery", map_res = 1)
+# sometimes you have to run this a second time to ensure that the function connects to the internet and retrieves the satellite basemap
+
+class(satellite) # stars: raster cubes (multiple raster layers)
+sf::st_crs(satellite) # projection is CRS 3857 (Web Mercator)
+plot(satellite)
+
+# convert 3 colour layers (RGB) to one colour layer
+satellite.rgb <- stars::st_rgb(satellite)
+ggplot() +
+  geom_stars(data = satellite.rgb) +
+  coord_sf()
+~~~
+{: .language-r}
+
+We need to convert the tracks and receiver station coordinates to the same projection as the satellite basemap. The tracks and stations are in WGS 1984 (CRS 4326) - which uses units of degrees longitude and latitude. The satellite basemap is in Web Mercator (CRS 3857) - which uses metres as its unit of measurement. To check this, you can run `st_crs(satellite)`.
+
+~~~
+# convert tracks from WGS 1984 to Web Mercator (CRS 3857) to match the satellite basemap
+tracks <- sf::st_as_sf(tracks, 
+  coords = c("longitude", "latitude"), crs = st_crs(4326))
+tracks <- sf::st_transform(tracks, crs = st_crs(3857))
+
+tracks <- cbind(tracks, data.frame(st_coordinates(tracks)))
+
+# convert receiver stations from WGS 1984 to Web Mercator
+stations <- sf::st_as_sf(stations,
+  coords = c("longitude", "latitude"), crs = st_crs(4326))
+
+# exclude stations outside of the study area (did not have detections of these six tags)
+stations <- st_crop(stations, study.area.box)
+stations <- st_transform(stations, crs = st_crs(3857))
+stations <- cbind(stations, data.frame(st_coordinates(stations)))
+~~~
+{: .language-r}
+
+Next, in these animations, we want to be able to distinguish when a fish has left the study area. To do this, I simply make the last position in the movement track transparent. The loop in the next chunk achieves this.
+
+We need to treat the last position differently, because otherwise there is no way to indicate that a fish has stopped being detected. Alternatively, you could change the shape of the point to indicate that it is the final detection.
+
+~~~
+# Identify the last detection of each tag, so that we can improve visualization later
+tag.ids <- sort(unique(tracks$animal_id))
+tracks$eventID <- seq(1, nrow(tracks))
+
+last.det <- data.frame(matrix(NA, nrow = 0, ncol = 4))
+names(last.det) <- c("animal_id", "bin_timestamp", "record_type",
+                     "eventID")
+
+for (i in 1:length(tag.ids)) {
+  tag.sub <- subset(tracks, animal_id == tag.ids[i])
+  sub.last <- tail(tag.sub, 1)
+  out <- select(sub.last, animal_id, bin_timestamp, record_type,
+                eventID)
+  last.det <- rbind(last.det, out)
+}
+
+tracks$last_det <- FALSE
+tracks$last_det[tracks$eventID %in% last.det$eventID] <- TRUE
+tracks$tag_det <- paste(tracks$animal_id, tracks$last_det)
+
+# convert track time stamp to datetime object
+tracks$bin_timestamp <- as_datetime(tracks$bin_timestamp)
+~~~
+{: .language-r}
+
+Now we can make the animation. We do this by making a standard `ggplot()` and then add functions from the `gganimate` package.
+
+We combine `geom_point(data = tracks)` and `geom_path(data = tracks)` so that the animation shows each fish moving, as well as its previous track.
+
+~~~
+# make colour palettes:
+tracks.pal <- c("#845EC2", "#56B4E9", "#009E73", "#0072B2",
+               "#D55E00", "#CC79A7")
+sort(unique(tracks$tag_det))
+points.pal <- c("#845EC2", NA, "#56B4E9", NA, "#009E73", NA,
+  "#0072B2", NA, "#D55E00", NA, "#CC79A7", NA) 
+# point palette (tag, last_det)
+
+animation <- ggplot() +
+  #satellite map
+  geom_stars(data = satellite.rgb) +
+  coord_sf(expand = FALSE) +
+  
+  # # receiver locations
+  geom_point(data = stations,
+             aes(x = X, y = Y), 
+             shape = 21, fill = "#F3B356", colour = "#EA7A1E",
+             alpha = 0.8) +
+  # you could switch these points out for buffers (use sf::st_buffer)
+  # corresponding to the detection radius 
+  
+  # tag tracks
+  geom_path(data = tracks,
+            aes(x = X, y = Y, colour = animal_id),
+            alpha = 0.4, linewidth = 0.7) +
+  scale_colour_manual(values = tracks.pal) +
+  ggnewscale::new_scale_colour() +
+  
+  geom_point(data = tracks,
+            aes(x = X, y = Y, group = animal_id, colour = tag_det),
+            size = 2.4) +
+  scale_colour_manual(values = points.pal) +
+  
+  # animate
+  gganimate::transition_reveal(bin_timestamp) +
+  labs(title = "Date: {lubridate::as_date(frame_along)}") +
+  gganimate::ease_aes("linear") +
+  
+  # theme
+  theme_void() + 
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = "black"),
+        plot.background = element_rect(fill = "black"),
+        plot.title = element_text(color = "white"))
+
+gganimate::anim_save(here::here("animations", "example-animation.gif"),
+          animation = animation,
+          width = 12, height = 12, units = "cm", 
+          res = 200, nframes = 100,
+          bg = "transparent")
+# to initially check that the animation code works, I will run a low res version with fewer frames, and then increase to res = 300 (or even 600) DPI, nframes = 200 (20 second video with 600 dpi). For shorter datasets like this one (less than a month), 100 frames can be sufficient.
+
+# it can take an hour or more to save large animations
+~~~
+{: .language-r}
+
+
+## Appendix A: Code to derive an ocean shapefile from a land shapefile.
+
+~~~
+# extract the coordinates of the area of the shapefile
+box <- data.frame(t(data.frame(st_bbox(nova.scotia))))
+nova.scotia.poly <- st_sfc(st_polygon(list(cbind(
+  c(box$xmin, box$xmax, box$xmax, box$xmin, box$xmin),
+  c(box$ymin, box$ymin, box$ymax, box$ymax, box$ymin)))),
+  crs = 4326)
+
+# make an ocean shape file by inverting bc.coast
+ocean <- st_difference(nova.scotia.poly,
+                       st_union(st_combine(nova.scotia)))
+
+# view ocean shapefile
+ggplot() +
+  geom_sf(data = ocean, fill = "lightblue")
+~~~
+{: .language-r}
+
+## Additional resources
+
+Examples of extra things to try with gganimate (e.g., shadow wakes instead of paths behind points; fish image instead of point using ggimage package - this works really well): [https://goodekat.github.io/presentations/2019-isugg-gganimate-spooky/slides.html#1](https://goodekat.github.io/presentations/2019-isugg-gganimate-spooky/slides.html#1)
