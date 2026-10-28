@@ -42,6 +42,8 @@ Once all of the programs are installed, open RStudio and run the below package i
 install.packages('tidyverse') #For data cleaning and arrangement)
 install.packages('lubridate') # Lubridate - part of Tidyverse, improves the process of creating date objects
 install.packages("viridis") #color scales in this package are easier to read by those with colorblindness, and print well in grey scale.
+install.packages("maps") #world basemap for drawing maps with ggplot
+install.packages("plotly") #turns ggplot figures into interactive plots
 
 ```
 
