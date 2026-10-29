@@ -1,5 +1,5 @@
 ---
-title: "Public Data Endpoints"
+title: "Supplemental: Public Data Endpoints"
 teaching: 10
 exercises: 0
 questions:

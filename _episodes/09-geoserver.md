@@ -1,5 +1,5 @@
 ---
-title: "Accessing OTN GeoServer Data"
+title: "Supplemental: Accessing OTN GeoServer Data"
 teaching: 15
 exercises: 15
 questions:
