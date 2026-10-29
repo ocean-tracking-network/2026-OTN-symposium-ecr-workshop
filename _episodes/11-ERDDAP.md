@@ -1,5 +1,5 @@
 ---
-title: "Accessing OTN ERDDAP Data"
+title: "Supplemental: Accessing OTN ERDDAP Data"
 teaching: 15
 exercises: 15
 questions:

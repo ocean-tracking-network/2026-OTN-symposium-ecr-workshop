@@ -19,7 +19,3 @@ The analyses we are employing in this workshop are Hidden Markov Models and Inte
 
 iSSFs are a type of resource selection function, defined as a function that produces values that are proportional to the probability of use by an animal. These types of models are a popular method to determine and predict relative habitat selection by animals that evaluate the relationships between resource use (i.e., the units of area selected by an animal) and the environmental characteristics associated with each unit of area. iSSFs go one step further by utilizing the movement data to appropriately define resource availability by matching each "used step" with a set of "available steps" randomly sampled from a distribution of characteristics derived from observed steps. The main benefit of using iSSFs over another RSF framework (such as calculating habitat use from known observation points and a background of pseudo-absence points) is that they allow the distinguishing of effects of environmental variables not just on the selection, but the movement process as well.
 
-~~~
-
-~~~
-{: .language-r}
