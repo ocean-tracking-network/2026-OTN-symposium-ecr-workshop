@@ -1,5 +1,5 @@
 ---
-title: Supplemental: Intro to Geospatial Data in R
+title: "Supplemental: Intro to Geospatial Data in R"
 teaching: 45
 exercises: 30
 questions:
